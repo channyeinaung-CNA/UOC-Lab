@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calgary Traffic Incidents</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="layer-control" id="layerControl"></div>
+    
+    <script>
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toDateString(); // e.g., "Fri, 06 May 2022"
+        }
+
+        function formatTime(timeString) {
+            return timeString.split('.')[0]; // Remove milliseconds, e.g., "18:44:00"
+        }
+
+        var map = L.map('map').setView([51.0486, -114.0708], 12);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19
+        }).addTo(map);
+
+        var markers = L.markerClusterGroup();
+
+        fetch('/map_data')
+            .then(response => response.json())
+            .then(data => {
+                const layers = {};
+                const layerControlDiv = document.getElementById('layerControl');
+
+                const layerIcons = {
+                    "TrafficCameras": "📷",
+                    "TrafficIncidents": "🚗",
+                    "TrafficSignals": "🚦"
+                };
+
+                for (const table in data) {
+                    let geojsonLayer = L.geoJSON(data[table], {
+                        onEachFeature: function (feature, layer) {
+                            let popupContent = "";
+
+                            switch (table) {
+                                case 'TrafficIncidents':
+                                    popupContent += "<strong>ID:</strong> " + (feature.properties.id || 'N/A');
+                                    popupContent += "<br><br><strong>Location:</strong> " + (feature.properties.location || 'N/A');
+                                    popupContent += "<br><strong>Date:</strong> " + formatDate(feature.properties.date || 'N/A');
+                                    popupContent += "<br><strong>Time:</strong> " + formatTime(feature.properties.time || 'N/A');
+                                    popupContent += "<br><strong>Description:</strong> " + (feature.properties.description || 'N/A');
+                                    break;
+                                case 'TrafficCameras':
+                                    // Extract camera number and URL using a regular expression
+                                    const cameraMatch = feature.properties.camera_url.match(/(Camera \d+)\s*\((https?:\/\/[^\s]+)\)/);
+                                    const cameraNumber = cameraMatch ? cameraMatch[1] : 'N/A';
+                                    const cameraUrl = cameraMatch ? cameraMatch[2] : '';
+
+                                    // Display the camera number and the embedded image
+                                    popupContent += `<strong>Camera Number:</strong> ${cameraNumber}<br><br>`;
+                                    popupContent += "<strong>Location:</strong> " + (feature.properties.camera_loc || 'N/A') + "<br>";
+                                    if (cameraUrl) {
+                                        popupContent += `<strong>Camera Feed:</strong><br><img src="${cameraUrl}" alt="Camera Feed" style="width: 200px; height: auto;">`;
+                                    } else {
+                                        popupContent += "<strong>Camera Feed:</strong> N/A";
+                                    }
+                                    break;
+                                case 'TrafficSignals':
+                                    popupContent += "<strong>Unit ID:</strong> " + (feature.properties.unitid || 'N/A');
+                                    popupContent += "<br><br><strong>Type:</strong> " + (feature.properties.int_type || 'N/A');
+                                    popupContent += "<br><strong>First Road:</strong> " + (feature.properties.firstroad || 'N/A');
+                                    popupContent += "<br><strong>Second Road:</strong> " + (feature.properties.secondroad || 'N/A');
+                                    break;
+                            }
+
+                            layer.bindPopup(popupContent);
+                        },
+                        pointToLayer: function (feature, latlng) {
+                            const iconHtml = layerIcons[table] || '❓';
+                            return L.marker(latlng, {
+                                icon: L.divIcon({
+                                    html: `<div style="font-size: 20px;">${iconHtml}</div>`,
+                                    className: '',
+                                    iconSize: [20, 20],
+                                    iconAnchor: [10, 10]
+                                })
+                            });
+                        }
+                    });
+
+                    markers.addLayer(geojsonLayer);
+                    layers[table] = geojsonLayer;
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.id = table;
+                    checkbox.checked = true;
+                    checkbox.onchange = function() {
+                        if (this.checked) {
+                            markers.addLayer(layers[table]);
+                        } else {
+                            markers.removeLayer(layers[table]);
+                        }
+                    };
+
+                    const label = document.createElement('label');
+                    label.htmlFor = table;
+                    label.innerHTML = `<span style="font-size: 18px;">${layerIcons[table]}</span> ${table}`;
+
+                    layerControlDiv.appendChild(checkbox);
+                    layerControlDiv.appendChild(label);
+                    layerControlDiv.appendChild(document.createElement('br'));
+                }
+
+                map.addLayer(markers);
+            });
+    </script>
+</body>
+</html>
